@@ -1,0 +1,25 @@
+{
+  "name": "node_test_package",
+  "version": "1.0.0",
+  "description": "testpackage",
+  "homepage": "https://github.com/Anemone221/geckostate-webserver#readme",
+  "bugs": {
+    "url": "https://github.com/Anemone221/geckostate-webserver/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anemone221/geckostate-webserver.git"
+  },
+  "license": "ISC",
+  "author": "anemone221",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.3",
+    "express": "^5.2.1"
+  }
+}
