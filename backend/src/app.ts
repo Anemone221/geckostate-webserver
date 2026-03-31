@@ -41,7 +41,17 @@ export function createApp(): express.Application {
   //   - X-Frame-Options: SAMEORIGIN       (prevents clickjacking via iframes)
   //   - Strict-Transport-Security          (forces HTTPS after first visit)
   //   - X-XSS-Protection, Referrer-Policy, and more
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc:  ["'self'"],
+        styleSrc:   ["'self'", "'unsafe-inline'"],
+        imgSrc:     ["'self'", "data:"],
+        connectSrc: ["'self'"],
+      },
+    },
+  }));
 
   // CORS — only allow requests from your frontend's origin.
   // Without this, any website could make API calls to your backend.
