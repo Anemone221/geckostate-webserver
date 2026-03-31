@@ -1,0 +1,38 @@
+services:
+  # MongoDB database — stores all our market data, settings, and user data
+  mongo:
+    image: mongo:7
+    container_name: geckostate-mongo
+    restart: unless-stopped
+    # Port exposed for local MongoDB Compass access only.
+    # In production, remove or comment out this ports section so the DB
+    # is only reachable from other containers on the Docker network.
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db  # Persists data across container restarts
+    environment:
+      MONGO_INITDB_DATABASE: geckostate
+      # Auth credentials — MongoDB will create this root user on first start.
+      # Set MONGO_PASSWORD in your shell or .env before running docker-compose up.
+      MONGO_INITDB_ROOT_USERNAME: geckostate
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in your environment}
+
+  # Backend API server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: geckostate-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongo             # Wait for MongoDB to start before launching the backend
+    env_file:
+      - ./backend/.env    # Loads environment variables from your .env file
+    volumes:
+      - ./backend/data:/app/data   # Where downloaded SDE/EveRef files are stored
+
+volumes:
+  mongo-data:             # Named volume — Docker manages this, data survives container removal
