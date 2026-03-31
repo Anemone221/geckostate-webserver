@@ -42,15 +42,7 @@ export function createApp(): express.Application {
   //   - Strict-Transport-Security          (forces HTTPS after first visit)
   //   - X-XSS-Protection, Referrer-Policy, and more
   app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc:  ["'self'"],
-        styleSrc:   ["'self'", "'unsafe-inline'"],
-        imgSrc:     ["'self'", "data:"],
-        connectSrc: ["'self'"],
-      },
-    },
+    contentSecurityPolicy: false,
   }));
 
   // CORS — only allow requests from your frontend's origin.
@@ -92,7 +84,7 @@ export function createApp(): express.Application {
     store:             MongoStore.create({ mongoUrl }),
     cookie: {
       httpOnly: true,
-      secure:   process.env['NODE_ENV'] === 'production',
+      secure:   false,
       sameSite: 'lax',
       maxAge:   SESSION_MAX_AGE_MS,
     },
