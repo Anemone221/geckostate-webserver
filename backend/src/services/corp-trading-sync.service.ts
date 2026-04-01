@@ -196,7 +196,7 @@ export async function syncCorpTransactions(
     if (firstPage.beforeToken) {
       const history = await esiAuthGetCursor<EsiWalletTransaction>(path, accessToken, {
         beforeToken: firstPage.beforeToken,
-        maxPages: 49, // already fetched 1 page
+        maxPages: 199, // already fetched 1 page
       });
       allTransactions.push(...history.items);
     }
