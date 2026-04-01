@@ -178,7 +178,7 @@ export async function syncCorpTransactions(
 
   const ESI_BASE = 'https://esi.evetech.net/latest';
   const allTransactions: EsiWalletTransaction[] = [];
-  const maxPages = 200;
+  const maxPages = 10;
 
   // ESI wallet transactions use from_id pagination:
   //   - No from_id → returns most recent transactions
@@ -189,6 +189,9 @@ export async function syncCorpTransactions(
   let fromId: number | undefined;
 
   for (let page = 0; page < maxPages; page++) {
+    // Delay between pages to stay within ESI's corp-wallet rate limit (300 tokens / 15 min)
+    if (page > 0) await new Promise(r => setTimeout(r, 500));
+
     const params: Record<string, unknown> = { datasource: 'tranquility' };
     if (fromId) params['from_id'] = fromId;
 
