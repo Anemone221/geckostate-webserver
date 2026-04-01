@@ -11,12 +11,13 @@
 // All functions require a characterId with valid ESI tokens and the
 // appropriate corporation role (Accountant, Trader, Director, etc.).
 
+import axios from 'axios';
 import { getValidAccessToken } from './token.service';
 import {
   esiAuthGet,
   esiAuthGetPaginated,
-  esiAuthGetCursor,
 } from './esi.service';
+import { config } from '../config';
 import { CorpOrder } from '../models/corp-order.model';
 import { WalletTransaction } from '../models/wallet-transaction.model';
 import { WalletJournal } from '../models/wallet-journal.model';
@@ -170,36 +171,55 @@ export async function syncCorpTransactions(
   const accessToken = await getValidAccessToken(characterId);
   const path = `/corporations/${corporationId}/wallets/${division}/transactions/`;
 
-  // Load existing per-division cursor token for incremental sync
+  // Load existing per-division cursor (highest transaction_id seen) for incremental sync
   const settings = await CorpTradingSettings.findOne({ corporationId });
   const divKey = String(division);
-  const afterToken = settings?.transactionCursors?.get(divKey) ?? undefined;
+  const lastSeenId = settings?.transactionCursors?.get(divKey) ?? undefined;
 
-  let allTransactions: EsiWalletTransaction[] = [];
-  let newAfterToken: string | undefined;
+  const ESI_BASE = 'https://esi.evetech.net/latest';
+  const allTransactions: EsiWalletTransaction[] = [];
+  const maxPages = 200;
 
-  if (afterToken) {
-    // Incremental sync — fetch only new records since last sync
-    const result = await esiAuthGetCursor<EsiWalletTransaction>(path, accessToken, {
-      afterToken,
-      maxPages: 50,
-    });
-    allTransactions = result.items;
-    newAfterToken = result.afterToken ?? afterToken;
-  } else {
-    // First sync — get most recent page, then walk backwards
-    const firstPage = await esiAuthGetCursor<EsiWalletTransaction>(path, accessToken);
-    allTransactions.push(...firstPage.items);
-    newAfterToken = firstPage.afterToken;
+  // ESI wallet transactions use from_id pagination:
+  //   - No from_id → returns most recent transactions
+  //   - from_id=N  → returns transactions with id < N (older)
+  // We always fetch the newest page first, then walk backwards.
+  // On incremental syncs, we stop when we see a transaction_id <= lastSeenId.
 
-    // Walk backwards to collect history
-    if (firstPage.beforeToken) {
-      const history = await esiAuthGetCursor<EsiWalletTransaction>(path, accessToken, {
-        beforeToken: firstPage.beforeToken,
-        maxPages: 199, // already fetched 1 page
-      });
-      allTransactions.push(...history.items);
+  let fromId: number | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const params: Record<string, unknown> = { datasource: 'tranquility' };
+    if (fromId) params['from_id'] = fromId;
+
+    const response = await axios.get<EsiWalletTransaction[]>(
+      `${ESI_BASE}${path}`,
+      {
+        params,
+        headers: {
+          'User-Agent': config.esi.userAgent,
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        timeout: 30_000,
+      }
+    );
+
+    const items = response.data;
+    if (items.length === 0) break;
+
+    // On incremental sync, stop when we reach already-seen transactions
+    if (lastSeenId) {
+      const newItems = items.filter((tx: EsiWalletTransaction) => tx.transaction_id > Number(lastSeenId));
+      allTransactions.push(...newItems);
+      if (newItems.length < items.length) break;
+    } else {
+      allTransactions.push(...items);
     }
+
+    // Use lowest transaction_id as from_id for next page (walk backwards)
+    const lowestId = Math.min(...items.map((tx: EsiWalletTransaction) => tx.transaction_id));
+    fromId = lowestId;
   }
 
   // Upsert all transactions
@@ -240,14 +260,18 @@ export async function syncCorpTransactions(
     total += batch.length;
   }
 
-  // Store the per-division cursor token for next incremental sync
-  if (newAfterToken && settings) {
+  // Store the highest transaction_id as cursor for next incremental sync
+  if (allTransactions.length > 0 && settings) {
+    const highestId = Math.max(...allTransactions.map(tx => tx.transaction_id));
     if (!settings.transactionCursors) {
       settings.transactionCursors = new Map();
     }
-    settings.transactionCursors.set(divKey, newAfterToken);
-    settings.markModified('transactionCursors');
-    await settings.save();
+    const prev = Number(settings.transactionCursors.get(divKey) ?? 0);
+    if (highestId > prev) {
+      settings.transactionCursors.set(divKey, String(highestId));
+      settings.markModified('transactionCursors');
+      await settings.save();
+    }
   }
 
   console.log(`[CorpSync] Wallet transactions synced: ${total} upserted.`);

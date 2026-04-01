@@ -26,6 +26,51 @@ vi.mock('../services/sso.service', async () => (await import('./seed')).createSs
 // Mock token service — return a dummy access token instead of refreshing
 vi.mock('../services/token.service', async () => (await import('./seed')).createTokenMock());
 
+// Mock axios — syncCorpTransactions calls axios.get directly for from_id pagination
+const mockTransactions = [
+  {
+    transaction_id:  3001,
+    date:            '2025-01-15T12:00:30Z',
+    type_id:         100,
+    quantity:        5,
+    unit_price:      1_000_000,
+    client_id:       99999,
+    location_id:     60003760,
+    is_buy:          false,
+    journal_ref_id:  7001,
+  },
+  {
+    transaction_id:  3002,
+    date:            '2025-01-15T11:00:00Z',
+    type_id:         100,
+    quantity:        10,
+    unit_price:      900_000,
+    client_id:       88888,
+    location_id:     60003760,
+    is_buy:          true,
+    journal_ref_id:  7004,
+  },
+];
+const txSeenUrls = new Set<string>();
+vi.mock('axios', () => ({
+  default: {
+    get: vi.fn().mockImplementation((url: string, opts?: { params?: Record<string, unknown> }) => {
+      if (url.includes('/transactions/')) {
+        // First call per division returns data; from_id calls return empty (end of history)
+        if (opts?.params?.['from_id']) {
+          return Promise.resolve({ data: [], headers: {} });
+        }
+        if (!txSeenUrls.has(url)) {
+          txSeenUrls.add(url);
+          return Promise.resolve({ data: mockTransactions, headers: {} });
+        }
+        return Promise.resolve({ data: [], headers: {} });
+      }
+      return Promise.resolve({ data: [], headers: {} });
+    }),
+  },
+}));
+
 // Mock ESI authenticated calls — return canned responses instead of calling ESI
 vi.mock('../services/esi.service', () => ({
   // Keep existing public ESI functions as pass-throughs (not used in these tests)
@@ -127,34 +172,6 @@ vi.mock('../services/esi.service', () => ({
     }
     return Promise.resolve([]);
   }),
-  esiAuthGetCursor: vi.fn().mockResolvedValue({
-    items: [
-      {
-        transaction_id:  3001,
-        date:            '2025-01-15T12:00:30Z',
-        type_id:         100,
-        quantity:        5,
-        unit_price:      1_000_000,
-        client_id:       99999,
-        location_id:     60003760,
-        is_buy:          false,
-        journal_ref_id:  7001,
-      },
-      {
-        transaction_id:  3002,
-        date:            '2025-01-15T11:00:00Z',
-        type_id:         100,
-        quantity:        10,
-        unit_price:      900_000,
-        client_id:       88888,
-        location_id:     60003760,
-        is_buy:          true,
-        journal_ref_id:  7004,
-      },
-    ],
-    beforeToken: 'cursor-before-abc',
-    afterToken:  'cursor-after-xyz',
-  }),
 }));
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
@@ -187,6 +204,7 @@ async function setCharacterCorpId(corpId: number): Promise<void> {
 describe('Corp Trading API', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    txSeenUrls.clear();
 
     // Login and set corp ID on the character
     const auth = await loginAgent(app);
