@@ -200,7 +200,7 @@ function OfferTable({ corporationId }: { corporationId: number }) {
       accessorKey: 'minSellPrice',
       header: () => <ColHeader
         label="Break-even"
-        tip="The minimum sell price per unit needed to recover all costs (ISK fee, required items, manufacturing materials, logistics). Green = current market price beats this. Red = market price is too low to cover costs."
+        tip="The minimum sell price per unit needed to recover all costs (ISK fee, required items, manufacturing materials, logistics, and LP purchase cost). Green = current market price beats this. Red = market price is too low to cover costs."
       />,
       cell: ({ row, getValue }) => {
         const v   = getValue<number | null>();

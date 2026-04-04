@@ -105,6 +105,7 @@ export async function getLpAnalysis(
   regionId: number,
   characterId?: number,
   accountId?: string,
+  lpPurchasePrice: number = 0,
 ): Promise<LpOfferResult[]> {
   // ── 1. Load the LP offers for this corp ──
   const offers = await LpOffer.find({ corporationId }).lean();
@@ -270,10 +271,13 @@ export async function getLpAnalysis(
     // Logistics: cost to haul the SOLD item to market
     const logisticsCost = outputVolumePerUnit * outputQuantity * logisticsCostPerM3;
 
-    // Total cost (includes manufacturing materials for BPC offers)
+    // LP purchase cost (what you pay to buy the LP from third parties)
+    const lpCostIsk = offer.lpCost * lpPurchasePrice;
+
+    // Total cost (includes manufacturing materials for BPC offers + LP purchase cost)
     const totalCost =
       otherCost !== null && bpcMaterialCost !== null
-        ? offer.iskCost + otherCost + bpcMaterialCost + logisticsCost
+        ? offer.iskCost + otherCost + bpcMaterialCost + logisticsCost + lpCostIsk
         : null;
 
     // Revenue

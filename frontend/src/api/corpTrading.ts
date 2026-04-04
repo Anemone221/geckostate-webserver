@@ -44,6 +44,8 @@ export interface InterpretedTransaction {
   matchedOrderId: number | null;
 }
 
+export type WithdrawalCategory = 'lp_purchase' | 'private_sale' | 'investor_payout' | 'other';
+
 export interface JournalEntry {
   journalId:     number;
   division:      number;
@@ -58,6 +60,7 @@ export interface JournalEntry {
   contextIdType: string | null;
   reason:        string;
   isLpPurchase:  boolean | null;
+  category:      WithdrawalCategory | null;
 }
 
 export interface FeeSummary {
@@ -66,6 +69,8 @@ export interface FeeSummary {
   grossRevenue:       number;
   grossSpend:         number;
   lpPurchases:        number;
+  miscWithdrawals:    number;
+  industryCosts:      number;
   netRevenue:         number;
   profit:             number;
   potentialRevenue:   number;
@@ -177,13 +182,13 @@ export function useUpdateCorpTradingSettings() {
   });
 }
 
-export function useToggleLpPurchase() {
+export function useUpdateWithdrawalCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ journalId, division, isLpPurchase }: { journalId: number; division: number; isLpPurchase: boolean }) =>
-      apiFetch<{ ok: boolean; isLpPurchase: boolean }>(
+    mutationFn: ({ journalId, division, category }: { journalId: number; division: number; category: WithdrawalCategory }) =>
+      apiFetch<{ ok: boolean; category: WithdrawalCategory }>(
         `/api/corp-trading/withdrawals/${journalId}`,
-        { method: 'PATCH', body: JSON.stringify({ division, isLpPurchase }) },
+        { method: 'PATCH', body: JSON.stringify({ division, category }) },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['corp-trading', 'withdrawals'] });
@@ -192,13 +197,13 @@ export function useToggleLpPurchase() {
   });
 }
 
-export function useToggleLpStorePurchase() {
+export function useUpdateLpStorePurchaseCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ journalId, division, isLpPurchase }: { journalId: number; division: number; isLpPurchase: boolean }) =>
-      apiFetch<{ ok: boolean; isLpPurchase: boolean }>(
+    mutationFn: ({ journalId, division, category }: { journalId: number; division: number; category: WithdrawalCategory }) =>
+      apiFetch<{ ok: boolean; category: WithdrawalCategory }>(
         `/api/corp-trading/lp-store-purchases/${journalId}`,
-        { method: 'PATCH', body: JSON.stringify({ division, isLpPurchase }) },
+        { method: 'PATCH', body: JSON.stringify({ division, category }) },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['corp-trading', 'lp-store-purchases'] });

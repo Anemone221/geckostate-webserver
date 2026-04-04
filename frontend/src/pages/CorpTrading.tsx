@@ -14,12 +14,13 @@ import {
   useCorpTradingSettings,
   useUpdateCorpTradingSettings,
   useTriggerCorpSync,
-  useToggleLpPurchase,
+  useUpdateWithdrawalCategory,
   useCorpLpStorePurchases,
-  useToggleLpStorePurchase,
+  useUpdateLpStorePurchaseCategory,
   type CorpOrder,
   type InterpretedTransaction,
   type JournalEntry,
+  type WithdrawalCategory,
 } from '../api/corpTrading';
 import { useLpBalances, useLpRates } from '../api/lp';
 
@@ -244,11 +245,13 @@ function TransactionsTab({ division }: { division: number }) {
 function FeeSummaryTab({ division }: { division: number }) {
   const [days, setDays] = useState(30);
   const [lpSinceDate, setLpSinceDate] = useState('');
+  const [withdrawalsOpen, setWithdrawalsOpen] = useState(true);
+  const [lpPurchasesOpen, setLpPurchasesOpen] = useState(true);
   const { data: summary, isLoading } = useCorpFeeSummary(division, days);
   const { data: withdrawals, isLoading: wdLoading } = useCorpWithdrawals(division);
   const { data: lpStorePurchases, isLoading: lpLoading } = useCorpLpStorePurchases(division, lpSinceDate || undefined);
-  const toggleLp = useToggleLpPurchase();
-  const toggleLpStore = useToggleLpStorePurchase();
+  const updateCategory = useUpdateWithdrawalCategory();
+  const updateLpStoreCategory = useUpdateLpStorePurchaseCategory();
   const { data: lpBalances } = useLpBalances();
   const { data: lpRates } = useLpRates();
 
@@ -302,11 +305,16 @@ function FeeSummaryTab({ division }: { division: number }) {
           <Card label="Broker Fees" value={fmtIsk(summary.totalBrokerFees)} highlight="red" />
           <Card label="Sales Tax" value={fmtIsk(summary.totalSalesTax)} highlight="red" />
 
+          <Card label="Industry Costs" value={fmtIsk(summary.industryCosts)} highlight="red" />
+
           <Card label="Profit" value={fmtIsk(summary.profit)} highlight={summary.profit >= 0 ? 'green' : 'red'} />
           <Card label="Potential Profit" value={fmtIsk(summary.potentialProfit)} highlight={summary.potentialProfit >= 0 ? 'green' : 'red'} />
           <Card label="Potential Sales Tax" value={fmtIsk(summary.potentialSalesTax)} highlight="red" />
 
           <Card label="Held Assets (LP)" value={fmtIsk(heldAssetsValue)} highlight="green" />
+          {summary.miscWithdrawals > 0 && (
+            <Card label="Misc Withdrawals" value={fmtIsk(summary.miscWithdrawals)} highlight="red" />
+          )}
         </div>
       ) : (
         <p className="text-gray-500 text-sm">No data available. Try syncing first.</p>
@@ -314,132 +322,158 @@ function FeeSummaryTab({ division }: { division: number }) {
 
       {/* Corporation Account Withdrawals — toggle which ones count as LP purchases */}
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        <button
+          onClick={() => setWithdrawalsOpen(!withdrawalsOpen)}
+          className="flex items-center gap-2 text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2 hover:text-gray-200 transition-colors"
+        >
+          <span className={`transition-transform ${withdrawalsOpen ? 'rotate-0' : '-rotate-90'}`}>▼</span>
           Corporation Withdrawals
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Check the entries that are LP purchases. Unchecked entries are excluded from the LP Purchases total above.
-        </p>
-        {wdLoading ? (
-          <div className="animate-pulse h-20 rounded bg-gray-800" />
-        ) : withdrawals && withdrawals.length > 0 ? (
-          <div className="bg-gray-800 rounded border border-gray-700 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                  <th className="px-3 py-2 text-left w-10">LP?</th>
-                  <th className="px-3 py-2 text-left">Date</th>
-                  <th className="px-3 py-2 text-right">Amount</th>
-                  <th className="px-3 py-2 text-left">Description</th>
-                  <th className="px-3 py-2 text-left">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {withdrawals.map((w) => {
-                  const included = w.isLpPurchase !== false;
-                  return (
-                    <tr key={`${w.journalId}-${w.division}`} className="border-b border-gray-700/50 last:border-0">
-                      <td className="px-3 py-1.5">
-                        <input
-                          type="checkbox"
-                          checked={included}
-                          onChange={() => {
-                            void toggleLp.mutateAsync({
-                              journalId: w.journalId,
-                              division: w.division,
-                              isLpPurchase: !included,
-                            });
-                          }}
-                          className="accent-indigo-500"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-300">{fmtDate(w.date)}</td>
-                      <td className="px-3 py-1.5 text-right text-red-400">{fmtIsk(w.amount)}</td>
-                      <td className="px-3 py-1.5 text-gray-400 text-xs">{w.description}</td>
-                      <td className="px-3 py-1.5 text-gray-400 text-xs">{w.reason}</td>
+        </button>
+        {withdrawalsOpen && (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              Check the entries that are LP purchases. Unchecked entries are excluded from the LP Purchases total above.
+            </p>
+            {wdLoading ? (
+              <div className="animate-pulse h-20 rounded bg-gray-800" />
+            ) : withdrawals && withdrawals.length > 0 ? (
+              <div className="bg-gray-800 rounded border border-gray-700 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
+                      <th className="px-3 py-2 text-left">Category</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 text-left">Reason</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-gray-500 text-sm">No withdrawal entries found.</p>
+                  </thead>
+                  <tbody>
+                    {withdrawals.map((w) => {
+                      const cat = w.category ?? (w.isLpPurchase === false ? 'other' : 'lp_purchase');
+                      return (
+                        <tr key={`${w.journalId}-${w.division}`} className="border-b border-gray-700/50 last:border-0">
+                          <td className="px-3 py-1.5">
+                            <select
+                              value={cat}
+                              onChange={(e) => {
+                                void updateCategory.mutateAsync({
+                                  journalId: w.journalId,
+                                  division: w.division,
+                                  category: e.target.value as WithdrawalCategory,
+                                });
+                              }}
+                              className="px-1.5 py-0.5 text-xs bg-gray-700 border border-gray-600 rounded text-gray-200 focus:outline-none focus:border-indigo-500"
+                            >
+                              <option value="lp_purchase">LP Purchase</option>
+                              <option value="private_sale">Private Sale</option>
+                              <option value="investor_payout">Investor Payout</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-300">{fmtDate(w.date)}</td>
+                          <td className={`px-3 py-1.5 text-right ${w.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtIsk(w.amount)}</td>
+                          <td className="px-3 py-1.5 text-gray-400 text-xs">{w.description}</td>
+                          <td className="px-3 py-1.5 text-gray-400 text-xs">{w.reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No withdrawal entries found.</p>
+            )}
+          </>
         )}
       </div>
 
       {/* LP Store Purchases — direct payments to LP Store */}
       <div className="mt-6">
         <div className="flex items-center gap-3 mb-2">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+          <button
+            onClick={() => setLpPurchasesOpen(!lpPurchasesOpen)}
+            className="flex items-center gap-2 text-sm font-semibold text-gray-400 uppercase tracking-wide hover:text-gray-200 transition-colors"
+          >
+            <span className={`transition-transform ${lpPurchasesOpen ? 'rotate-0' : '-rotate-90'}`}>▼</span>
             LP Store Purchases
-          </h3>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Since:</label>
-            <input
-              type="date"
-              value={lpSinceDate}
-              onChange={(e) => { setLpSinceDate(e.target.value); }}
-              className="px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-gray-100 focus:outline-none focus:border-indigo-500"
-            />
-            {lpSinceDate && (
-              <button
-                onClick={() => { setLpSinceDate(''); }}
-                className="text-xs text-gray-500 hover:text-gray-300"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+          </button>
+          {lpPurchasesOpen && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Since:</label>
+              <input
+                type="date"
+                value={lpSinceDate}
+                onChange={(e) => { setLpSinceDate(e.target.value); }}
+                className="px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-gray-100 focus:outline-none focus:border-indigo-500"
+              />
+              {lpSinceDate && (
+                <button
+                  onClick={() => { setLpSinceDate(''); }}
+                  className="text-xs text-gray-500 hover:text-gray-300"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        <p className="text-xs text-gray-500 mb-3">
-          Direct LP Store payments. Check the entries that should count as LP purchases.
-        </p>
-        {lpLoading ? (
-          <div className="animate-pulse h-20 rounded bg-gray-800" />
-        ) : lpStorePurchases && lpStorePurchases.length > 0 ? (
-          <div className="bg-gray-800 rounded border border-gray-700 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                  <th className="px-3 py-2 text-left w-10">LP?</th>
-                  <th className="px-3 py-2 text-left">Date</th>
-                  <th className="px-3 py-2 text-right">Amount</th>
-                  <th className="px-3 py-2 text-left">Description</th>
-                  <th className="px-3 py-2 text-left">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lpStorePurchases.map((w) => {
-                  const included = w.isLpPurchase !== false;
-                  return (
-                    <tr key={`${w.journalId}-${w.division}`} className="border-b border-gray-700/50 last:border-0">
-                      <td className="px-3 py-1.5">
-                        <input
-                          type="checkbox"
-                          checked={included}
-                          onChange={() => {
-                            void toggleLpStore.mutateAsync({
-                              journalId: w.journalId,
-                              division: w.division,
-                              isLpPurchase: !included,
-                            });
-                          }}
-                          className="accent-indigo-500"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-300">{fmtDate(w.date)}</td>
-                      <td className="px-3 py-1.5 text-right text-red-400">{fmtIsk(w.amount)}</td>
-                      <td className="px-3 py-1.5 text-gray-400 text-xs">{w.description}</td>
-                      <td className="px-3 py-1.5 text-gray-400 text-xs">{w.reason}</td>
+        {lpPurchasesOpen && (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              Direct LP Store payments. Use the category dropdown to classify each entry.
+            </p>
+            {lpLoading ? (
+              <div className="animate-pulse h-20 rounded bg-gray-800" />
+            ) : lpStorePurchases && lpStorePurchases.length > 0 ? (
+              <div className="bg-gray-800 rounded border border-gray-700 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
+                      <th className="px-3 py-2 text-left">Category</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 text-left">Reason</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-gray-500 text-sm">No LP store purchase entries found.</p>
+                  </thead>
+                  <tbody>
+                    {lpStorePurchases.map((w) => {
+                      const cat = w.category ?? (w.isLpPurchase === false ? 'other' : 'lp_purchase');
+                      return (
+                        <tr key={`${w.journalId}-${w.division}`} className="border-b border-gray-700/50 last:border-0">
+                          <td className="px-3 py-1.5">
+                            <select
+                              value={cat}
+                              onChange={(e) => {
+                                void updateLpStoreCategory.mutateAsync({
+                                  journalId: w.journalId,
+                                  division: w.division,
+                                  category: e.target.value as WithdrawalCategory,
+                                });
+                              }}
+                              className="px-1.5 py-0.5 text-xs bg-gray-700 border border-gray-600 rounded text-gray-200 focus:outline-none focus:border-indigo-500"
+                            >
+                              <option value="lp_purchase">LP Purchase</option>
+                              <option value="private_sale">Private Sale</option>
+                              <option value="investor_payout">Investor Payout</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-300">{fmtDate(w.date)}</td>
+                          <td className={`px-3 py-1.5 text-right ${w.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtIsk(w.amount)}</td>
+                          <td className="px-3 py-1.5 text-gray-400 text-xs">{w.description}</td>
+                          <td className="px-3 py-1.5 text-gray-400 text-xs">{w.reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No LP store purchase entries found.</p>
+            )}
+          </>
         )}
       </div>
     </div>

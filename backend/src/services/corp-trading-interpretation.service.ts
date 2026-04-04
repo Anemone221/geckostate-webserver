@@ -18,6 +18,7 @@
 import { WalletTransaction } from '../models/wallet-transaction.model';
 import { WalletJournal } from '../models/wallet-journal.model';
 import { CorpOrder } from '../models/corp-order.model';
+import { CorpIndustryJob } from '../models/corp-industry-job.model';
 import { Settings } from '../models/settings.model';
 import mongoose from 'mongoose';
 
@@ -43,11 +44,13 @@ export interface InterpretedTransaction {
 export interface FeeSummary {
   totalBrokerFees:    number;
   totalSalesTax:      number;
-  grossRevenue:       number;     // sum of sell transaction totals
+  grossRevenue:       number;     // sum of sell transaction totals + private sales
   grossSpend:         number;     // sum of buy transaction totals
-  lpPurchases:        number;     // corporation account withdrawals (ISK sent to buy LP)
+  lpPurchases:        number;     // withdrawals categorized as LP purchases
+  miscWithdrawals:    number;     // withdrawals categorized as investor_payout or other
+  industryCosts:      number;     // ISK installation costs for industry jobs completed in period
   netRevenue:         number;     // grossRevenue - totalBrokerFees - totalSalesTax
-  profit:             number;     // grossRevenue - grossSpend - lpPurchases - totalBrokerFees - totalSalesTax
+  profit:             number;     // grossRevenue - grossSpend - lpPurchases - totalBrokerFees - totalSalesTax - industryCosts
   potentialRevenue:   number;     // value of open sell orders (price × volumeRemain)
   potentialSalesTax:  number;     // potentialRevenue × salesTaxPct
   potentialProfit:    number;     // profit + potentialRevenue - potentialSalesTax
@@ -203,17 +206,32 @@ export async function getFeeSummary(
   let totalBrokerFees = 0;
   let totalSalesTax = 0;
   let lpPurchases = 0;
+  let miscWithdrawals = 0;
+  let privateSales = 0;
 
   for (const entry of journalEntries) {
-    const amount = Math.abs(entry.amount);
     if (entry.refType === 'brokers_fee') {
-      totalBrokerFees += amount;
+      totalBrokerFees += Math.abs(entry.amount);
     } else if (entry.refType === 'transaction_tax') {
-      totalSalesTax += amount;
+      totalSalesTax += Math.abs(entry.amount);
     } else if (entry.refType === 'corporation_account_withdrawal' || entry.refType === 'lp_store') {
-      // Only count if user hasn't explicitly excluded it (null = included by default)
-      if (entry.isLpPurchase !== false) {
-        lpPurchases += amount;
+      // Use category field if set, fall back to isLpPurchase for backwards compat
+      const cat = entry.category ?? (entry.isLpPurchase === false ? 'other' : 'lp_purchase');
+      // For spending categories (lp_purchase, investor_payout, other):
+      //   outgoing (negative amount) → -(-1B) = +1B added to total ✓
+      //   incoming (positive amount) → -(+50B) = -50B reduces total ✓
+      // For private_sale: incoming ISK is revenue, use raw positive amount.
+      switch (cat) {
+        case 'lp_purchase':
+          lpPurchases += -entry.amount;
+          break;
+        case 'private_sale':
+          privateSales += entry.amount;
+          break;
+        case 'investor_payout':
+        case 'other':
+          miscWithdrawals += -entry.amount;
+          break;
       }
     }
   }
@@ -237,8 +255,23 @@ export async function getFeeSummary(
     }
   }
 
+  // Private sales count toward gross revenue
+  grossRevenue += privateSales;
+
+  // Industry job installation costs for jobs completed in this period
+  const completedJobs = await CorpIndustryJob.find({
+    corporationId,
+    endDate: { $gte: since },
+    status: { $in: ['delivered', 'ready'] },
+  }).lean();
+
+  let industryCosts = 0;
+  for (const job of completedJobs) {
+    industryCosts += job.cost;
+  }
+
   const netRevenue = grossRevenue - totalBrokerFees - totalSalesTax;
-  const profit = grossRevenue - grossSpend - lpPurchases - totalBrokerFees - totalSalesTax;
+  const profit = grossRevenue - grossSpend - lpPurchases - totalBrokerFees - totalSalesTax - industryCosts;
 
   // Calculate potential profit from open sell orders in this division
   const openSellOrders = await CorpOrder.find({
@@ -264,6 +297,8 @@ export async function getFeeSummary(
     grossRevenue,
     grossSpend,
     lpPurchases,
+    miscWithdrawals,
+    industryCosts,
     netRevenue,
     profit,
     potentialRevenue,

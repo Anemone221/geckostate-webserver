@@ -49,14 +49,15 @@ export function calcWeekly(offer: LpOffer, purchasePrice: number | null): Weekly
     };
   }
 
-  const trueProfit = offer.profit - offer.lpCost * purchasePrice;
+  // Backend profit already includes LP purchase cost in totalCost
+  const trueProfit = offer.profit;
 
   const weeklyRedemptions    = Math.ceil(offer.maxWeeklySellUnits / offer.quantity);
   const weeklyLpSpend        = weeklyRedemptions * offer.lpCost;
   const weeklyLpPurchaseCost = weeklyLpSpend * purchasePrice;
-  // totalCost includes iskCost + otherCost + logisticsCost per redemption
+  // totalCost already includes LP purchase cost
   const weeklyIskCost        = weeklyRedemptions * offer.totalCost;
-  const weeklyCapitalNeeded  = weeklyLpPurchaseCost + weeklyIskCost;
+  const weeklyCapitalNeeded  = weeklyIskCost;
   const weeklyNetProfit      = trueProfit * weeklyRedemptions;
   const weeklyROIPct         = weeklyCapitalNeeded > 0
     ? (weeklyNetProfit / weeklyCapitalNeeded) * 100

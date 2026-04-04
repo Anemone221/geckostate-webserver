@@ -21,7 +21,20 @@ export const ESI_SCOPES = {
   CORP_ORDERS:      'esi-markets.read_corporation_orders.v1',
   CORP_WALLETS:     'esi-wallet.read_corporation_wallets.v1',
   CORP_DIVISIONS:   'esi-corporations.read_divisions.v1',
+  CORP_INDUSTRY:    'esi-industry.read_corporation_jobs.v1',
 } as const;
+
+// ─── Withdrawal categories ──────────────────────────────────────────────────
+
+/** Valid categories for corporation withdrawal journal entries. */
+export const WITHDRAWAL_CATEGORIES = [
+  'lp_purchase',
+  'private_sale',
+  'investor_payout',
+  'other',
+] as const;
+
+export type WithdrawalCategory = typeof WITHDRAWAL_CATEGORIES[number];
 
 /** All scopes joined for the SSO authorization URL. */
 export const ESI_SCOPES_STRING = Object.values(ESI_SCOPES).join(' ');

@@ -171,8 +171,16 @@ router.get('/:corporationId', async (req: Request, res: Response, next: NextFunc
     const characterId = req.session.characterId!;
     const accountId   = req.session.accountId!;
 
+    // Fetch the user's ISK per LP purchase price for this corporation
+    const [accountRate, seedRate] = await Promise.all([
+      LpStoreRate.findOne({ accountId, corporationId }, { iskPerLp: 1 }).lean(),
+      LpStoreRate.findOne({ accountId: null, corporationId }, { iskPerLp: 1 }).lean(),
+    ]);
+    const lpRate = accountRate ?? seedRate;
+    const lpPurchasePrice = lpRate?.iskPerLp ?? 0;
+
     const regionId = config.primaryRegionId;
-    const results = await getLpAnalysis(corporationId, regionId, characterId, accountId);
+    const results = await getLpAnalysis(corporationId, regionId, characterId, accountId, lpPurchasePrice);
     res.json(results);
   } catch (err) {
     next(err);

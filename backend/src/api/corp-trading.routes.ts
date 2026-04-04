@@ -18,6 +18,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import { requireAuth } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
+import { WITHDRAWAL_CATEGORIES, ESI_SCOPES } from '../constants';
+import type { WithdrawalCategory } from '../constants';
 import { Character } from '../models/character.model';
 import { CorpOrder } from '../models/corp-order.model';
 import { CorpDivision } from '../models/corp-division.model';
@@ -28,6 +30,7 @@ import {
   syncCorpTransactions,
   syncCorpJournal,
   syncCorpDivisions,
+  syncCorpIndustryJobs,
 } from '../services/corp-trading-sync.service';
 import {
   getInterpretedTransactions,
@@ -221,18 +224,20 @@ router.patch('/withdrawals/:journalId', async (req: Request, res: Response, next
     const journalId = parseInt(req.params['journalId']);
     if (isNaN(journalId)) throw new AppError(400, 'Invalid journal ID');
 
-    const { division, isLpPurchase } = req.body as { division: number; isLpPurchase: boolean };
-    if (typeof isLpPurchase !== 'boolean') throw new AppError(400, 'isLpPurchase must be a boolean');
+    const { division, category } = req.body as { division: number; category: WithdrawalCategory };
+    if (!WITHDRAWAL_CATEGORIES.includes(category)) {
+      throw new AppError(400, `Invalid category. Must be one of: ${WITHDRAWAL_CATEGORIES.join(', ')}`);
+    }
     const div = parseInt(String(division)) || 1;
 
     const result = await WalletJournal.findOneAndUpdate(
       { journalId, corporationId: corpId, division: div, refType: 'corporation_account_withdrawal' },
-      { $set: { isLpPurchase } },
+      { $set: { category, isLpPurchase: category === 'lp_purchase' } },
       { new: true }
     );
 
     if (!result) throw new AppError(404, 'Withdrawal entry not found');
-    res.json({ ok: true, isLpPurchase: result.isLpPurchase });
+    res.json({ ok: true, category: result.category });
   } catch (err) {
     next(err);
   }
@@ -278,18 +283,20 @@ router.patch('/lp-store-purchases/:journalId', async (req: Request, res: Respons
     const journalId = parseInt(req.params['journalId']);
     if (isNaN(journalId)) throw new AppError(400, 'Invalid journal ID');
 
-    const { division, isLpPurchase } = req.body as { division: number; isLpPurchase: boolean };
-    if (typeof isLpPurchase !== 'boolean') throw new AppError(400, 'isLpPurchase must be a boolean');
+    const { division, category } = req.body as { division: number; category: WithdrawalCategory };
+    if (!WITHDRAWAL_CATEGORIES.includes(category)) {
+      throw new AppError(400, `Invalid category. Must be one of: ${WITHDRAWAL_CATEGORIES.join(', ')}`);
+    }
     const div = parseInt(String(division)) || 1;
 
     const result = await WalletJournal.findOneAndUpdate(
       { journalId, corporationId: corpId, division: div, refType: 'lp_store' },
-      { $set: { isLpPurchase } },
+      { $set: { category, isLpPurchase: category === 'lp_purchase' } },
       { new: true }
     );
 
     if (!result) throw new AppError(404, 'LP store purchase entry not found');
-    res.json({ ok: true, isLpPurchase: result.isLpPurchase });
+    res.json({ ok: true, category: result.category });
   } catch (err) {
     next(err);
   }
@@ -318,6 +325,13 @@ router.post('/sync', async (req: Request, res: Response, next: NextFunction) => 
     // Sync division names (lightweight, single call)
     await syncCorpDivisions(characterId, corpId);
 
+    // Sync industry jobs (only if character has the scope)
+    const character = await Character.findOne({ characterId }).lean();
+    let industryCount = 0;
+    if (character?.scopes?.includes(ESI_SCOPES.CORP_INDUSTRY)) {
+      industryCount = await syncCorpIndustryJobs(characterId, corpId);
+    }
+
     // Update sync timestamps
     const now = new Date();
     await CorpTradingSettings.findOneAndUpdate(
@@ -342,6 +356,7 @@ router.post('/sync', async (req: Request, res: Response, next: NextFunction) => 
         orders: orderCount,
         transactions: txCount,
         journal: journalCount,
+        industry: industryCount,
       },
     });
   } catch (err) {

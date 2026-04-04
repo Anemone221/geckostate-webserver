@@ -18,22 +18,24 @@
 // fees to the transactions that caused them.
 
 import mongoose, { Schema, Document } from 'mongoose';
+import type { WithdrawalCategory } from '../constants';
 
 export interface IWalletJournal extends Document {
-  journalId:     number;            // ESI: id — unique per journal entry
-  corporationId: number;            // the corporation that owns this wallet
-  division:      number;            // wallet division (1–7)
-  date:          Date;              // when this entry was recorded
-  refType:       string;            // type of ISK movement (see list above)
-  amount:        number;            // ISK amount (positive = received, negative = paid)
-  balance:       number;            // wallet balance after this entry
-  firstPartyId:  number | null;     // entity on one side of the transaction
-  secondPartyId: number | null;     // entity on the other side
-  description:   string;            // human-readable description from CCP
-  contextId:     number | null;     // related ID (order_id, transaction_id, etc.)
-  contextIdType: string | null;     // what contextId refers to
-  reason:        string;            // player-entered reason (e.g. for corp transfers)
-  isLpPurchase:  boolean | null;    // user-tagged: is this withdrawal an LP purchase? (only for corporation_account_withdrawal)
+  journalId:     number;                      // ESI: id — unique per journal entry
+  corporationId: number;                      // the corporation that owns this wallet
+  division:      number;                      // wallet division (1–7)
+  date:          Date;                        // when this entry was recorded
+  refType:       string;                      // type of ISK movement (see list above)
+  amount:        number;                      // ISK amount (positive = received, negative = paid)
+  balance:       number;                      // wallet balance after this entry
+  firstPartyId:  number | null;               // entity on one side of the transaction
+  secondPartyId: number | null;               // entity on the other side
+  description:   string;                      // human-readable description from CCP
+  contextId:     number | null;               // related ID (order_id, transaction_id, etc.)
+  contextIdType: string | null;               // what contextId refers to
+  reason:        string;                      // player-entered reason (e.g. for corp transfers)
+  isLpPurchase:  boolean | null;              // DEPRECATED — use category instead
+  category:      WithdrawalCategory | null;   // user-tagged category for withdrawals (null = lp_purchase)
 }
 
 const WalletJournalSchema = new Schema<IWalletJournal>(
@@ -52,6 +54,7 @@ const WalletJournalSchema = new Schema<IWalletJournal>(
     contextIdType: { type: String, default: null },
     reason:        { type: String, default: '' },
     isLpPurchase:  { type: Boolean, default: null },
+    category:      { type: String, enum: ['lp_purchase', 'private_sale', 'investor_payout', 'other', null], default: null },
   },
   { timestamps: true }
 );

@@ -2,11 +2,12 @@
 // Fetches corporation trading data from ESI's authenticated endpoints
 // and upserts it into MongoDB.
 //
-// Four sync functions:
-//   1. syncCorpOrders       — open market orders (X-Pages pagination)
-//   2. syncCorpTransactions — wallet transactions (cursor-based pagination)
-//   3. syncCorpJournal      — wallet journal entries (X-Pages pagination)
-//   4. syncCorpDivisions    — wallet/hangar division names (single call)
+// Five sync functions:
+//   1. syncCorpOrders        — open market orders (X-Pages pagination)
+//   2. syncCorpTransactions  — wallet transactions (cursor-based pagination)
+//   3. syncCorpJournal       — wallet journal entries (X-Pages pagination)
+//   4. syncCorpDivisions     — wallet/hangar division names (single call)
+//   5. syncCorpIndustryJobs  — industry jobs (X-Pages pagination)
 //
 // All functions require a characterId with valid ESI tokens and the
 // appropriate corporation role (Accountant, Trader, Director, etc.).
@@ -22,6 +23,7 @@ import { CorpOrder } from '../models/corp-order.model';
 import { WalletTransaction } from '../models/wallet-transaction.model';
 import { WalletJournal } from '../models/wallet-journal.model';
 import { CorpDivision } from '../models/corp-division.model';
+import { CorpIndustryJob } from '../models/corp-industry-job.model';
 import { CorpTradingSettings } from '../models/corp-trading-settings.model';
 import { BATCH_SIZE } from '../constants';
 
@@ -408,4 +410,82 @@ export async function syncCorpDivisions(
   }
 
   console.log(`[CorpSync] Divisions synced: ${batch.length} upserted.`);
+}
+
+// ─── Industry Jobs Sync ─────────────────────────────────────────────────────
+
+interface EsiIndustryJob {
+  job_id:              number;
+  installer_id:        number;
+  facility_id:         number;
+  activity_id:         number;
+  blueprint_type_id:   number;
+  product_type_id?:    number;
+  cost:                number;
+  start_date:          string;
+  end_date:            string;
+  status:              string;
+  runs:                number;
+  licensed_runs:       number;
+  output_location_id:  number;
+}
+
+/**
+ * Fetch corporation industry jobs from ESI and upsert into MongoDB.
+ * Includes completed jobs so we can track historical costs.
+ */
+export async function syncCorpIndustryJobs(
+  characterId: number,
+  corporationId: number
+): Promise<number> {
+  console.log(`[CorpSync] Syncing industry jobs for corp ${corporationId}...`);
+
+  const accessToken = await getValidAccessToken(characterId);
+  const jobs = await esiAuthGetPaginated<EsiIndustryJob>(
+    `/corporations/${corporationId}/industry/jobs/?include_completed=true`,
+    accessToken
+  );
+
+  const batch: Parameters<typeof CorpIndustryJob.bulkWrite>[0] = [];
+  let total = 0;
+
+  for (const job of jobs) {
+    batch.push({
+      updateOne: {
+        filter: { jobId: job.job_id },
+        update: {
+          $set: {
+            jobId:            job.job_id,
+            corporationId,
+            installerId:      job.installer_id,
+            activityId:       job.activity_id,
+            blueprintTypeId:  job.blueprint_type_id,
+            productTypeId:    job.product_type_id ?? null,
+            cost:             job.cost,
+            startDate:        new Date(job.start_date),
+            endDate:          new Date(job.end_date),
+            status:           job.status,
+            runs:             job.runs,
+            licensedRuns:     job.licensed_runs,
+            facilityId:       job.facility_id,
+            outputLocationId: job.output_location_id,
+          },
+        },
+        upsert: true,
+      },
+    });
+
+    if (batch.length >= BATCH_SIZE) {
+      await CorpIndustryJob.bulkWrite(batch.splice(0, BATCH_SIZE), { ordered: false });
+      total += BATCH_SIZE;
+    }
+  }
+
+  if (batch.length > 0) {
+    await CorpIndustryJob.bulkWrite(batch, { ordered: false });
+    total += batch.length;
+  }
+
+  console.log(`[CorpSync] Industry jobs synced: ${total} upserted.`);
+  return total;
 }

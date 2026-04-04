@@ -17,6 +17,7 @@ import {
   syncCorpTransactions,
   syncCorpJournal,
   syncCorpDivisions,
+  syncCorpIndustryJobs,
 } from '../services/corp-trading-sync.service';
 import { ESI_SCOPES } from '../constants';
 
@@ -69,6 +70,11 @@ export function startCorpTradingSyncJob(): void {
 
           // Sync division names
           await syncCorpDivisions(character.characterId, corpId);
+
+          // Sync industry jobs (only if character has the scope)
+          if (character.scopes.includes(ESI_SCOPES.CORP_INDUSTRY)) {
+            await syncCorpIndustryJobs(character.characterId, corpId);
+          }
 
           // Update timestamps
           const now = new Date();
